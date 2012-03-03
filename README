@@ -1,0 +1,31 @@
+This is a small utility that is useful for indexing and searching
+medium size source code repositories (currently using it to search >
+10K files).  It was thrown together fairly quickly after reading
+"Regular Expression Matching with a Trigram Index or How Google Code
+Search Worked" by Russ Cox (no relation).  I figured I could do a much
+shoddier job than he did (but in less time).  I'm fairly confident
+that first goal was met/exceeded.
+
+The entire thing is setup to fit my development environment so you'll
+first need (1) change some of the parameters at the top of the file.
+Second you need to fix up the finding/indexing of source files...  I'm
+planning on getting all that sorted out RSN.
+
+To use it, first index your sandbox with: python source_search.py -s
+alternatively, if you're not working on my machine, index a single
+directory tree with python source_search.py -i <directory>
+
+Indexes consume a fair amount of space but that's the price you pay...
+
+To search your sandbox simply enter the search terms: 
+python source_search.py 'search string'
+ 
+multiple word searches should be enclosed in quotes otherwise multiple
+spaces between words are interpreted as a single space.  Yeah, I'm a
+bit lazy
+ 
+Wildcards (*) are accepted and used in their traditional globbing
+sense however true regular expressions aren't implemented 
+e.x.
+python source_search.py numto*interval 
+will return matches of numtodsinterval and numtoyminterval
