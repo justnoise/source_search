@@ -1,5 +1,3 @@
-#!/home/shared/qa_team/opt/python/bin/python2.5
-
 # Copyright (C) 2012 by Brendan Cox
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -19,33 +17,6 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
-
-################################################################################
-# source_search.py
-# -----------------
-# This is a utility that is useful for indexing and searching medium
-# size source code repositories.
-#
-# To use it, first index your sandbox with:
-# python source_search.py -s
-#
-# Indexes consume a fair amount of space but that's the price you
-# pay...
-#
-# To search your sandbox simply enter the search terms:
-# python source_search.py 'search string'
-# 
-# multiple word searches should be enclosed in quotes otherwise
-# multiple spaces between words are interpreted as a single space.
-# Yeah, I'm a bit lazy
-# 
-# Wildcards (*) are accepted and used in their traditional globbing
-# sense however true regular expressions aren't implemented
-# e.x.
-# python source_search.py numto*interval
-# will return matches of numtodsinterval and numtoyminterval
-#
-################################################################################
 
 from pprint import pprint
 import pdb
