@@ -21,137 +21,14 @@
 from pprint import pprint
 import pdb
 import os
-import re
 import cPickle as pickle
-import sys
 import time
 import shelve 
-from optparse import OptionParser
+import argparse
 
-#todo: 
-#----------------------------------------
-# break out finding files into own module
+import options
+import source_code_finder
 
-ngram_length = 3
-save_path = '/home/bcox/search_indexes'
-max_source_file_size = 1000000
-sandbox_directory = '/home/bcox/sandbox'
-cc_directory = sandbox_directory + '/cc'
-
-#-------------------------------------------------------------------------------
-# Finding sourcecode files
-#-------------------------------------------------------------------------------
-def get_common_directories(common_folder_path):
-    return os.listdir(common_folder_path)
-
-def make_common_files_filter(common_directories):
-    '''returns a function that tests whether a directory is a common folder'''
-    def filter_func(directory_path):
-        for common_directory in common_directories:
-            if directory_path.endswith(common_directory):
-                return False
-        return True
-    return filter_func
-
-def is_scripts_directory(dir_path):
-    if dir_path.endswith('/cc') or dir_path.endswith('/CVSROOT'):
-        return False
-    else:
-        return True
-
-def file_is_ascii(filepath):
-    ret_str = os.popen('file %s' % filepath).read()
-    if ret_str.find('text') > -1:
-        return True
-    else:
-        return False
-
-def file_is_not_too_large(filepath):
-    return os.path.getsize(filepath) < max_source_file_size
-
-def make_directory_name_filter(directory_name):
-    def filter_func(directory_path):
-        if directory_path.endswith(directory_name):
-            return False
-        else:
-            return True
-    return filter_func
-
-def all_predicates_pass(predicates, argument):
-    for pred in predicates:
-        if not pred(argument):
-            return False
-    return True
-
-def get_files_in_directory(d):
-    filepaths = []
-    file_filters = [file_is_ascii, file_is_not_too_large]
-    directory_filters = [make_directory_name_filter('/CVS')]
-    for d in directories:
-        filepaths.extend(get_files(d, file_filters, directory_filters))
-    return filepaths
-
-def get_files(starting_dir, file_filters, directory_filters):
-    print 'getting files in %s' % starting_dir
-    starting_dir = os.path.abspath(starting_dir)
-    source_files = []
-    i = 0
-    for root_dir, dirs, files in os.walk(starting_dir):
-        if not all_predicates_pass(directory_filters, root_dir):
-            continue
-        for f in files:
-            filepath = root_dir + '/' + f
-            if not all_predicates_pass(file_filters, filepath):
-                continue
-            print '\r%d' % i,
-            i += 1
-            source_files.append(filepath)
-    print '\r%d files found in %s' % (i, starting_dir)
-    return source_files
-
-def get_cc_files(cc_dir):
-    #get common files
-    source_files = []
-    common_root_dir = cc_dir + '/common'
-    file_filters = [file_is_ascii, file_is_not_too_large]
-    cvs_directory_filter = [make_directory_name_filter('/CVS')]
-    common_source_files = get_files(common_root_dir, file_filters, cvs_directory_filter)
-    source_files.extend(common_source_files)
-    #get all other directories
-    common_directories = get_common_directories(common_root_dir)
-    common_directory_filter = make_common_files_filter(common_directories)
-    directory_filter = [make_directory_name_filter('/CVS'), common_directory_filter]
-    cc_source_files = get_files(cc_dir, file_filters, directory_filter)
-    source_files.extend(cc_source_files)
-    return source_files
-
-def get_scripts_files(sandbox_dir):
-    dirs = os.listdir(sandbox_dir)
-    dirs.sort()
-    #pull out the latest version of versioned directories (e.g. scripts121 instead of scripts114
-    modules_to_directories = {}
-    version_re = re.compile(r'\d+$')
-    for d in dirs:
-        version_match = version_re.search(d)
-        if not version_match:
-            modules_to_directories[d] = d
-        else:
-            version = version_match.group()
-            module = d.replace(version, '')
-            modules_to_directories[module] = d
-    directories = modules_to_directories.values()
-    #now go through and get all the files in those directories
-    source_files = []
-    file_filters = [file_is_ascii, file_is_not_too_large]
-    cvs_directory_filter = [make_directory_name_filter('/CVS')]
-    for d in directories:
-        # cc is handled by a different function, dont index CVSROOT
-        d = sandbox_dir + '/' + d
-        if d.endswith('/cc') or d.endswith('/CVSROOT'):
-            continue
-        files = get_files(d, file_filters, cvs_directory_filter)
-        source_files.extend(files)
-    return source_files
 
 #-------------------------------------------------------------------------------
 # ngram indexing
@@ -164,8 +41,8 @@ def combine_ngram_dictionaries(existing, new):
 def get_ngrams_in_string(s):
     ngs = set()
     data = s.lower()
-    for col in xrange(len(data)-ngram_length + 1):
-        cur_ngram = data[col:col+ngram_length]
+    for col in xrange(len(data)-options.ngram_length + 1):
+        cur_ngram = data[col:col+options.ngram_length]
         ngs.add(cur_ngram)
     return ngs
 
@@ -195,9 +72,10 @@ def get_ngrams_in_file(filepath, file_id):
 def get_ngrams_in_file_list(filepaths):
     all_ngs = {}
     for file_id, f in enumerate(filepaths):
-        print '\rIndexing file %d of %d' % (file_id, len(filepaths)),
+        print '\rIndexing file %d of %d' % (file_id + 1, len(filepaths)),
         new_ngs = get_ngrams_in_file(f, file_id)
         all_ngs = combine_ngram_dictionaries(all_ngs, new_ngs)
+    print
     return all_ngs
 
 def unpack_list(lst):
@@ -250,21 +128,23 @@ def grep_matching_files(search_str, matching_candidates, filepaths):
 # Serialization
 #-------------------------------------------------------------------------------
 def save_indexes(filepaths, all_ngrams):
+    if not os.path.exists(options.index_files_path):
+        os.makedirs(options.index_files_path)
     print 'writing shelf'
     t1 = time.time()
-    ngrams_file = save_path + '/ngrams.shlf'
+    ngrams_file = options.index_files_path + '/ngrams.shlf'
     ngs_shelf = shelve.open(ngrams_file, flag='n', protocol=pickle.HIGHEST_PROTOCOL)
     for k, v in all_ngrams.iteritems():
         ngs_shelf[k] = v
     ngs_shelf.close()
     print 'saving indexes'
-    filepath_file = save_path + '/ngram_filepaths.pkl'
+    filepath_file = options.index_files_path + '/ngram_filepaths.pkl'
     pickle.dump(filepaths, open(filepath_file, 'w'), pickle.HIGHEST_PROTOCOL)
     print 'done saving: %f seconds' % (time.time() - t1)
 
 def load_indexes():
-    filepath_file = save_path + '/ngram_filepaths.pkl'
-    ngrams_file = save_path + '/ngrams.shlf'
+    filepath_file = options.index_files_path + '/ngram_filepaths.pkl'
+    ngrams_file = options.index_files_path + '/ngrams.shlf'
     filepaths = pickle.load(open(filepath_file, 'r'))
     all_ngrams = shelve.open(ngrams_file, protocol=pickle.HIGHEST_PROTOCOL)
     return filepaths, all_ngrams
@@ -273,37 +153,32 @@ def load_indexes():
 # Run It!
 #-------------------------------------------------------------------------------
 def parse_arguments():
-    parser = OptionParser()
-    parser.add_option("-i", "--index", dest="index", action='store_true',
-                      help="index the specified directories")
-    parser.add_option("-s", "--index-sandbox", dest="index_sandbox", action='store_true',
-                      help="index the entire sandbox")
-    options, args = parser.parse_args()
-    # todo, validate arguments here
-    return options, args
+    parser = argparse.ArgumentParser(description='Index and serach sandbox.')
+    parser.add_argument('--index', '-i', nargs='+',
+                        help='index source tree instead of searching.')
+    parser.add_argument('search', nargs='*',
+                        help='source tree for items listed on the command line.')
+    args = parser.parse_args()
+    return args
 
 if __name__ == '__main__':
-    options, args = parse_arguments()
-    if options.index:
-        print args
-        directories = args
-        filepaths = get_files_in_directory(directories)
-        all_ngrams = get_ngrams_in_file_list(filepaths)
-        save_indexes(filepaths, all_ngrams)
-    elif options.index_sandbox:
-        scripts_files = get_scripts_files(sandbox_directory)
-        cc_files = get_cc_files(cc_directory)
-        filepaths = cc_files
-        filepaths.extend(scripts_files)
+    args = parse_arguments()
+    if args.index:
+        directories = args.index
+        filepaths = []
+        for d in directories:
+            finder = source_code_finder.SourceCodeFinder(d)
+            new_filepaths = finder.find_sourcecode_files()
+            filepaths.extend(new_filepaths)
         all_ngrams = get_ngrams_in_file_list(filepaths)
         save_indexes(filepaths, all_ngrams)
     else:
         filepaths, all_ngrams = load_indexes()
         # uuuh, yeah, we should validate arguments above...
-        if not args:
+        if not args.search:
             print 'You need to enter a search string:'
             print 'Usage: source_search.py <some_string>'
-        search_str = ' '.join(args)
+        search_str = ' '.join(args.search)
         print 'searching for %s' % search_str
         matching_candidates = find_matching_candidates(search_str, all_ngrams)
         grep_matching_files(search_str, matching_candidates, filepaths)
