@@ -23,3 +23,6 @@ sense however true regular expressions aren't implemented
 Wildcard example:
 python source_search.py numto*interval 
 will return matches of numtodsinterval and numtoyminterval
+
+##Related Work
+If available, git grep is a much better alternative. 
